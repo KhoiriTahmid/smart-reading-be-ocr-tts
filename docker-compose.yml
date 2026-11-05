@@ -1,0 +1,20 @@
+services:
+  ocr-service:
+    build: .
+    image: smart-reading-ocr-service:local
+    init: true
+    env_file:
+      - .env
+    # The host paths in .env (FFMPEG_BINARY, e.g. the venv build) do not exist
+    # inside the container; the image provides /usr/bin/ffmpeg via apt.
+    environment:
+      FFMPEG_BINARY: ffmpeg
+      FFPROBE_BINARY: ffprobe
+    # Local development only. The production example does not publish a port.
+    ports:
+      - "127.0.0.1:8000:8000"
+    mem_limit: 3g
+    cpus: 2
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true

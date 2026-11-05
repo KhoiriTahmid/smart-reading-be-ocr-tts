@@ -1,0 +1,25 @@
+# Production-style compose example: no published port.
+# Attach this service to the same internal Docker network as the NestJS worker.
+#
+#   docker build -t smart-reading-ocr-service:local .
+#   docker network create backend
+#   docker compose -f docker-compose.prod.yml up -d
+services:
+  ocr-service:
+    image: smart-reading-ocr-service:local
+    init: true
+    env_file:
+      - .env
+    expose:
+      - "8000"
+    networks:
+      - backend
+    mem_limit: 3g
+    cpus: 2
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  backend:
+    external: true
