@@ -270,3 +270,33 @@ def test_ocr_engine_handles_empty_result() -> None:
     result = engine.extract(np.zeros((8, 8, 3), dtype=np.uint8))
 
     assert result == OcrResult("", 0, 0.0)
+
+
+def test_ocr_pdf_success_returns_pages() -> None:
+    from tests.test_pdf import make_pdf
+
+    pdf_bytes = make_pdf([
+        "Halaman Pertama Buku Panduan Smart Reading",
+        "Halaman Kedua Mengenai Penggunaan Suara TTS",
+    ])
+    storage = FakeStorage({"uploads/docs/document.pdf": pdf_bytes})
+    settings = make_settings()
+    services = make_services(settings, storage=storage)
+
+    with make_client(settings=settings, services=services) as client:
+        response = client.post(
+            "/ocr",
+            json={"file_key": "uploads/docs/document.pdf"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_pages"] == 2
+    assert "Halaman Pertama" in data["text"]
+    assert "Halaman Kedua" in data["text"]
+    assert len(data["pages"]) == 2
+    assert data["pages"][0]["page_number"] == 1
+    assert "Halaman Pertama" in data["pages"][0]["text"]
+    assert data["pages"][1]["page_number"] == 2
+    assert "Halaman Kedua" in data["pages"][1]["text"]

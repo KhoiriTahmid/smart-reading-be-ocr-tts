@@ -103,13 +103,13 @@ class EdgeTTSEngine:
             resolved_lang,
             voice_name,
         )
-        parts = [
-            await self._synthesize_chunk(chunk, voice_name, rate) for chunk in chunks
-        ]
+        if len(chunks) == 1:
+            return await self._synthesize_chunk(chunks[0], voice_name, rate)
 
-        if len(parts) == 1:
-            return parts[0]
-        return await self._concat_mp3(parts)
+        parts = await asyncio.gather(
+            *(self._synthesize_chunk(chunk, voice_name, rate) for chunk in chunks)
+        )
+        return await self._concat_mp3(list(parts))
 
     async def _synthesize_chunk(self, text: str, voice_name: str, rate: str) -> bytes:
         audio = bytearray()

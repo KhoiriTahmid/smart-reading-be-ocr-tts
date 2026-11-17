@@ -38,14 +38,19 @@ class Settings(BaseSettings):
     ocr_min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     ocr_max_side: int = Field(default=1600, ge=320, le=8000)
     max_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    max_pdf_bytes: int = Field(default=15 * 1024 * 1024, ge=1)
+    pdf_max_pages: int = Field(default=10, ge=1, le=50)
+    pdf_render_dpi: int = Field(default=150, ge=72, le=300)
     # Optional directory for downloaded ONNX models. When unset RapidOCR uses
     # its package directory (fine for local dev; Docker sets /app/models).
     ocr_model_dir: Path | None = None
 
     # TTS
     tts_max_chars: int = Field(default=20_000, ge=1)
-    tts_chunk_chars: int = Field(default=900, ge=100, le=3_500)
+    tts_chunk_chars: int = Field(default=2500, ge=100, le=4_000)
     tts_default_voice: Literal["female", "male"] = "female"
+    tts_max_concurrency: int = Field(default=3, ge=1, le=10)
+    tts_max_waiting_requests: int = Field(default=10, ge=0)
 
     # Concurrency / timeouts
     max_waiting_requests: int = Field(default=2, ge=0)

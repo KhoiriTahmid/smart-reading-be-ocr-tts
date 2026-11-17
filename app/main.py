@@ -76,13 +76,18 @@ def create_app(
                 app.state.tts = services.tts
                 app.state.storage = services.storage
                 app.state.limiter = services.limiter
+                app.state.tts_limiter = getattr(services, "tts_limiter", services.limiter)
                 app.state.ocr_loaded = services.ocr_loaded
                 app.state.tts_ready = services.tts_ready
             else:
                 app.state.ocr_loaded = False
                 app.state.tts_ready = False
 
-                app.state.limiter = JobLimiter(settings.max_waiting_requests)
+                app.state.limiter = JobLimiter(settings.max_waiting_requests, concurrency=1)
+                app.state.tts_limiter = JobLimiter(
+                    max_waiting=settings.tts_max_waiting_requests,
+                    concurrency=settings.tts_max_concurrency,
+                )
                 storage = S3Storage(settings)
                 app.state.storage = storage
                 app.state.tts = EdgeTTSEngine(settings)

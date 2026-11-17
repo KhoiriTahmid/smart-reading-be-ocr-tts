@@ -26,13 +26,14 @@ router = APIRouter()
 @router.post(
     "/tts",
     response_model=TtsResponse,
+    response_model_exclude_none=True,
     dependencies=[Depends(require_api_key)],
 )
 async def tts(payload: TtsRequest, request: Request) -> TtsResponse:
     settings: Settings = request.app.state.settings
     engine: EdgeTTSEngine = request.app.state.tts
     storage: S3Storage = request.app.state.storage
-    limiter: JobLimiter = request.app.state.limiter
+    limiter: JobLimiter = getattr(request.app.state, "tts_limiter", request.app.state.limiter)
 
     if len(payload.text) > settings.tts_max_chars:
         raise PayloadTooLargeError("Text too large")
@@ -46,7 +47,10 @@ async def tts(payload: TtsRequest, request: Request) -> TtsResponse:
     voice = payload.voice.value if payload.voice is not None else settings.tts_default_voice
     lang = payload.lang.value if payload.lang is not None else "id"
     rate = payload.rate or "+0%"
-    audio_key = f"audio/{payload.history_id}.mp3"
+    if payload.page_number is not None:
+        audio_key = f"audio/{payload.history_id}_p{payload.page_number}.mp3"
+    else:
+        audio_key = f"audio/{payload.history_id}.mp3"
 
     try:
         async with asyncio.timeout(settings.tts_timeout_seconds):
@@ -63,4 +67,5 @@ async def tts(payload: TtsRequest, request: Request) -> TtsResponse:
         audio_key=audio_key,
         duration_seconds=duration,
         chars=len(normalized),
+        page_number=payload.page_number,
     )

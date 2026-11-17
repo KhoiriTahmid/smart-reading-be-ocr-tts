@@ -253,3 +253,43 @@ def test_unexpected_error_returns_500_without_leaking_details() -> None:
 def test_tts_limiter_is_used() -> None:
     services = make_services()
     assert isinstance(services.limiter, JobLimiter)
+
+
+@pytest.mark.asyncio
+async def test_job_limiter_concurrency() -> None:
+    limiter = JobLimiter(max_waiting=2, concurrency=3)
+    active_records: list[int] = []
+
+    async def worker() -> None:
+        async with limiter.slot():
+            active_records.append(limiter.active)
+            await asyncio.sleep(0.01)
+
+    import asyncio
+    await asyncio.gather(*(worker() for _ in range(3)))
+    assert len(active_records) == 3
+    assert all(active_records)
+
+
+def test_tts_with_page_number() -> None:
+    tts = FakeTts(audio=b"ID3fake-mp3-page-2", duration=8.5)
+    storage = FakeStorage()
+    services = make_services(tts=tts, storage=storage)
+
+    with make_client(services=services) as client:
+        response = client.post(
+            "/tts",
+            json={**_tts_payload(), "page_number": 2},
+            headers=AUTH_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "audio_key": f"audio/{HISTORY_ID}_p2.mp3",
+        "duration_seconds": 8.5,
+        "chars": 25,
+        "page_number": 2,
+    }
+    assert storage.put_calls == [
+        (f"audio/{HISTORY_ID}_p2.mp3", b"ID3fake-mp3-page-2", "audio/mpeg")
+    ]

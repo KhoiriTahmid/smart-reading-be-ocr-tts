@@ -37,10 +37,19 @@ class OcrRequest(BaseModel):
         return value
 
 
+class PageResult(BaseModel):
+    page_number: int = Field(ge=1)
+    text: str
+    lines: int
+    avg_confidence: float
+
+
 class OcrResponse(BaseModel):
     text: str
     lines: int
     avg_confidence: float
+    total_pages: int | None = None
+    pages: list[PageResult] | None = None
 
 
 class TtsRequest(BaseModel):
@@ -49,9 +58,11 @@ class TtsRequest(BaseModel):
     voice: Voice | None = None
     lang: Lang | None = None
     rate: str | None = Field(default=None, pattern=r"^[+-]\d{1,2}%$")
+    page_number: int | None = Field(default=None, ge=1)
 
 
 class TtsResponse(BaseModel):
     audio_key: str
     duration_seconds: float
     chars: int
+    page_number: int | None = None
