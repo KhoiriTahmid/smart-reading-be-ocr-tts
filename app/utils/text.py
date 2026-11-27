@@ -8,6 +8,87 @@ import unicodedata
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+")
 _CLAUSE_BOUNDARY = re.compile(r"(?<=[,;:])\s+")
 _HORIZONTAL_SPACE = re.compile(r"[^\S\n]+")
+_ALLOWED_ALNUM_TOKEN = re.compile(
+    r"^(?:\d+(?:st|nd|rd|th|s|km|cm|mm|kg|mg|ml|m|g|h|x)|[A-Z]{1,4}\d{1,3})$"
+)
+_VOWELS = frozenset("aeiouyAEIOUY")
+
+
+def _is_noise_token(token: str) -> bool:
+    """Return True if a single stripped token looks like OCR margin gibberish."""
+    core = token.strip(".,;:!?\"'()[]{}-–—/\\")
+    if not core:
+        return False
+
+    has_alpha = any(ch.isalpha() for ch in core)
+    has_digit = any(ch.isdigit() for ch in core)
+    if not has_alpha:
+        return False
+
+    # Mixed digits and letters inside a single word (e.g. 197ov9, 3onslq, 1OSE2, g79q,oyA)
+    if has_digit:
+        if _ALLOWED_ALNUM_TOKEN.match(core) or _ALLOWED_ALNUM_TOKEN.match(core.lower() if core[0].isdigit() else core):
+            return False
+        return True
+
+    # Purely alphabetic lowercase/mixed-case token >= 3 chars with no vowels (e.g. sbgq),
+    # or ending in 'q' / containing 'q' not followed by 'u' (e.g. insq, pitaprq).
+    # Uppercase acronyms (e.g. SMP, DPR, UUD) are preserved.
+    if len(core) >= 3 and not core.isupper():
+        if not any(ch in _VOWELS for ch in core):
+            return True
+        lower = core.lower()
+        if lower.endswith("q"):
+            return True
+
+    return False
+
+
+def is_gibberish_line(line: str) -> bool:
+    """Return True if a short isolated OCR line is likely spine/margin noise.
+
+    Targets short 1-2 token lines containing mixed digit/alpha gibberish
+    (e.g. ``197ov9``, ``3onslq``, ``1OSE2``, ``g79q,oyA``) or vowelless
+    consonant clusters (e.g. ``insq sbgq``), while preserving legitimate
+    body text, numbers, ordinals, units, and normal short words.
+    """
+    stripped = line.strip()
+    if not stripped or len(stripped) > 24:
+        return False
+
+    tokens = stripped.split()
+    if not tokens or len(tokens) > 2:
+        return False
+
+    if any(_is_noise_token(tok) for tok in tokens):
+        if len(tokens) == 1:
+            return True
+        has_mixed_alnum = any(
+            any(c.isalpha() for c in tok) and any(c.isdigit() for c in tok) and _is_noise_token(tok)
+            for tok in tokens
+        )
+        if has_mixed_alnum or all(_is_noise_token(tok) or len(tok) <= 2 for tok in tokens):
+            return True
+
+    return False
+
+
+def clean_ocr_line(line: str) -> str:
+    """Drop isolated gibberish lines and strip leading margin-noise tokens."""
+    stripped = line.strip()
+    if not stripped or is_gibberish_line(stripped):
+        return ""
+
+    tokens = stripped.split()
+    start = 0
+    while start < len(tokens) - 1 and _is_noise_token(tokens[start]):
+        start += 1
+    if start > 0:
+        cleaned = " ".join(tokens[start:]).strip()
+        if is_gibberish_line(cleaned):
+            return ""
+        return cleaned
+    return stripped
 
 
 def normalize_text(text: str) -> str:

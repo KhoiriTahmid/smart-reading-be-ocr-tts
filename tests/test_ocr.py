@@ -232,9 +232,58 @@ async def test_limiter_releases_slot_after_request() -> None:
 
 
 class _StubRapidResult:
-    def __init__(self, txts, scores) -> None:
+    def __init__(self, txts, scores, boxes=None) -> None:
         self.txts = txts
         self.scores = scores
+        self.boxes = boxes
+
+
+def _rect(x1: float, y1: float, x2: float, y2: float) -> list[list[float]]:
+    return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+
+
+def test_ocr_engine_filters_margin_outlier_boxes_and_gibberish() -> None:
+    import numpy as np
+
+    engine = OcrEngine(make_settings(ocr_min_confidence=0.5))
+
+    class StubEngine:
+        def __call__(self, image):
+            return _StubRapidResult(
+                txts=(
+                    "Kalimat pertama pada halaman buku yang panjang.",
+                    "Kalimat kedua pada halaman buku yang panjang.",
+                    "197ov9",
+                    "leslsjrmem",
+                    "Kalimat ketiga pada halaman buku yang panjang.",
+                    "FOSEr",
+                    "Kalimat keempat pada halaman buku yang panjang.",
+                    "selesai.",
+                ),
+                scores=(0.98, 0.99, 0.76, 0.73, 0.97, 0.65, 0.98, 0.96),
+                boxes=[
+                    _rect(120, 100, 820, 140),
+                    _rect(120, 150, 820, 190),
+                    _rect(2, 160, 102, 195),    # left-margin noise + gibberish
+                    _rect(0, 200, 110, 235),    # left-margin outlier box
+                    _rect(120, 200, 820, 240),
+                    _rect(1160, 250, 1190, 285),  # right-margin outlier box
+                    _rect(120, 250, 820, 290),
+                    _rect(120, 300, 210, 335),  # legitimate short paragraph ending
+                ],
+            )
+
+    engine._engine = StubEngine()
+    result = engine.extract(np.zeros((400, 1200, 3), dtype=np.uint8))
+
+    assert result.text == (
+        "Kalimat pertama pada halaman buku yang panjang.\n"
+        "Kalimat kedua pada halaman buku yang panjang.\n"
+        "Kalimat ketiga pada halaman buku yang panjang.\n"
+        "Kalimat keempat pada halaman buku yang panjang.\n"
+        "selesai."
+    )
+    assert result.lines == 5
 
 
 def test_ocr_engine_drops_low_confidence_and_empty_lines() -> None:

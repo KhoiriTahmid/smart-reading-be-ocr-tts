@@ -6,7 +6,13 @@ import unicodedata
 
 import pytest
 
-from app.utils.text import chunk_text, normalize_text, split_sentences
+from app.utils.text import (
+    chunk_text,
+    clean_ocr_line,
+    is_gibberish_line,
+    normalize_text,
+    split_sentences,
+)
 
 
 def test_normalize_nfc() -> None:
@@ -90,3 +96,46 @@ def test_chunk_hard_splits_pathological_single_token() -> None:
 def test_chunk_rejects_invalid_limit() -> None:
     with pytest.raises(ValueError):
         chunk_text("Halo", 0)
+
+
+@pytest.mark.parametrize(
+    "noise_line",
+    [
+        "197ov9",
+        "3onslq",
+        "1OSE2",
+        "g79q,oyA",
+        "juwn91",
+        "insq sbgq",
+    ],
+)
+def test_is_gibberish_line_detects_margin_noise(noise_line: str) -> None:
+    assert is_gibberish_line(noise_line) is True
+
+
+@pytest.mark.parametrize(
+    "valid_line",
+    [
+        "14",
+        "2024",
+        "365-367",
+        "Bab 1",
+        "Halaman 2",
+        "20th",
+        "1990s",
+        "10kg",
+        "SMP",
+        "selesai.",
+        "Pada penjelasan berikutnya, Marx mencatat:",
+    ],
+)
+def test_is_gibberish_line_preserves_valid_text(valid_line: str) -> None:
+    assert is_gibberish_line(valid_line) is False
+
+
+def test_clean_ocr_line_strips_leading_noise_tokens() -> None:
+    assert (
+        clean_ocr_line("insq sbgq Pada penjelasan berikutnya, Marx mencatat:")
+        == "Pada penjelasan berikutnya, Marx mencatat:"
+    )
+    assert clean_ocr_line("197ov9") == ""

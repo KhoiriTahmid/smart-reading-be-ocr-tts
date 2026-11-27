@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from statistics import median
 
 import cv2
 import numpy as np
 
 from app.config import Settings
+from app.utils.text import clean_ocr_line
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +96,14 @@ class OcrEngine:
 
         texts = getattr(result, "txts", None)
         scores = getattr(result, "scores", None)
+        boxes = getattr(result, "boxes", None)
         if texts is None or len(texts) == 0:
             return OcrResult(text="", lines=0, avg_confidence=0.0)
 
-        kept: list[tuple[str, float]] = []
+        box_list = list(boxes) if boxes is not None else []
+        has_boxes = len(box_list) == len(texts)
+
+        candidates: list[tuple[str, float, tuple[float, float] | None]] = []
         score_list = list(scores) if scores is not None else []
         for index, raw_text in enumerate(texts):
             if not isinstance(raw_text, str):
@@ -115,11 +121,74 @@ class OcrEngine:
 
             if confidence < self._settings.ocr_min_confidence:
                 continue
-            kept.append((text, confidence))
 
+            text = clean_ocr_line(text)
+            if not text:
+                continue
+
+            x_bounds: tuple[float, float] | None = None
+            if has_boxes:
+                try:
+                    xs = [float(pt[0]) for pt in box_list[index]]
+                    if xs:
+                        x_bounds = (min(xs), max(xs))
+                except (TypeError, ValueError, IndexError):
+                    x_bounds = None
+
+            candidates.append((text, confidence, x_bounds))
+
+        if not candidates:
+            return OcrResult(text="", lines=0, avg_confidence=0.0)
+
+        kept = self._filter_margin_outliers(candidates)
         if not kept:
             return OcrResult(text="", lines=0, avg_confidence=0.0)
 
         joined = "\n".join(text for text, _ in kept).strip()
         average = round(sum(score for _, score in kept) / len(kept), 4)
         return OcrResult(text=joined, lines=len(kept), avg_confidence=average)
+
+    @staticmethod
+    def _filter_margin_outliers(
+        candidates: list[tuple[str, float, tuple[float, float] | None]],
+    ) -> list[tuple[str, float]]:
+        """Drop short/narrow boxes sitting outside the main body column."""
+        with_boxes = [item[2] for item in candidates if item[2] is not None]
+        if len(with_boxes) < 4:
+            return [(text, conf) for text, conf, _ in candidates]
+
+        widths = [x_max - x_min for x_min, x_max in with_boxes]
+        max_width = max(widths)
+        if max_width <= 0:
+            return [(text, conf) for text, conf, _ in candidates]
+
+        anchors = [
+            (x_min, x_max)
+            for x_min, x_max in with_boxes
+            if (x_max - x_min) >= 0.45 * max_width
+        ]
+        if len(anchors) < 3:
+            return [(text, conf) for text, conf, _ in candidates]
+
+        body_left = median(x_min for x_min, _ in anchors)
+        body_right = median(x_max for _, x_max in anchors)
+        body_width = body_right - body_left
+        if body_width <= 0:
+            return [(text, conf) for text, conf, _ in candidates]
+
+        narrow_limit = 0.35 * body_width
+        margin_tol = 0.02 * body_width
+
+        kept: list[tuple[str, float]] = []
+        for text, conf, bounds in candidates:
+            if bounds is not None:
+                x_min, x_max = bounds
+                width = x_max - x_min
+                center_x = (x_min + x_max) / 2.0
+                if width < narrow_limit and (
+                    center_x < body_left - margin_tol
+                    or center_x > body_right + margin_tol
+                ):
+                    continue
+            kept.append((text, conf))
+        return kept
